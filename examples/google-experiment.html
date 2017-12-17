@@ -56,16 +56,27 @@
             gl_Position = aPosition;
         }
     </script>
+    <script id="transparent-fs" type="x-shader/vs">
+        #version 300 es   
+
+        out vec4 fragColor;
+        void main() {
+            fragColor = vec4(0.0, 0.0, 0.0, 0.0);
+        }
+    </script>
     <script id="update-force-fs" type="x-fragment-shader">
         #version 300 es   
 
         precision highp float;
 
         #define GRAVITY vec3(0.0, -0.0003, 0.0)
-        #define WIND vec3(0.0, 0.0, 0.00008)
+        #define WIND vec3(0.00002, 0.0, 0.00008)
         #define DAMPING 0.99
 
         in vec2 vScreenUV;
+
+        uniform float uPinOffset;
+        uniform float uRestDistance;
 
         uniform sampler2D uPositionBuffer;
         uniform sampler2D uNormalBuffer;
@@ -83,7 +94,9 @@
             vec3 oldPosition = texelFetch(uOldPositionBuffer, texelCoord, 0).xyz;
             vec3 temp = position;
 
-            if (texelCoord != ivec2(0, 0) && texelCoord != ivec2(maxTexelCoord.x, 0)) {
+            if (texelCoord.y == 0) {
+                position.x = uPinOffset + float(texelCoord.x) * uRestDistance;
+            } else {
                 position += (position - oldPosition) * DAMPING + GRAVITY;
                 float wDotN = dot(WIND, normal);
                 position += abs(wDotN) * sign(wDotN) * normal;
@@ -108,7 +121,6 @@
             float uRestDistance;   
         };
 
-        uniform mat2x3 uPinPositions;
         uniform sampler2D uPositionBuffer;
 
         out vec3 outPosition;
@@ -123,14 +135,10 @@
 
             bool otherPin = false;
 
-            if (texelCoord == ivec2(0, 0)) {
-                position = uPinPositions[0];
-            } else if (texelCoord == ivec2(dimensions.x - 1, 0)) {
-                position = uPinPositions[1];
-            } else {
+            if (texelCoord.y != 0) {
                 ivec2 otherCoord = texelCoord + uDir * neg;
 
-                if (otherCoord == ivec2(0, 0) || otherCoord == ivec2(dimensions.x - 1, 0)) {
+                if (otherCoord.y == 0) {
                     otherPin = true;
                 }
 
@@ -410,7 +418,9 @@
         ///////////////////////////
 
         var clothPositionData = new Float32Array(NUM_PARTICLES * 4);
+        var clothPositionData2 = new Float32Array(NUM_PARTICLES * 4);
         var clothNormalData = new Float32Array(NUM_PARTICLES * 4);
+        var clothNormalData2 = new Float32Array(NUM_PARTICLES * 4);
         var uvData = new Float32Array(NUM_PARTICLES * 2);
         var dataTextureIndex = new Int16Array(NUM_PARTICLES * 2);
         var indexData = new Uint16Array((DATA_TEXTURE_WIDTH - 1) * (DATA_TEXTURE_HEIGHT - 1) * 6);
@@ -426,10 +436,13 @@
             var u = (x / DATA_TEXTURE_WIDTH) * CLOTH_WIDTH;
             var v = CLOTH_HEIGHT - (y / DATA_TEXTURE_HEIGHT) * CLOTH_HEIGHT;
 
-            clothPositionData[vec4i] = u - 0.5;
+            clothPositionData[vec4i] = u - 0.4;
             clothPositionData[vec4i + 1] = v - 0.3;
+            clothPositionData2[vec4i] = u - 0.1;
+            clothPositionData2[vec4i + 1] = v - 0.3;
 
             clothNormalData[vec4i + 2] = 1;
+            clothNormalData2[vec4i + 2] = 1;
 
             uvData[vec2i] = u;
             uvData[vec2i + 1] = v;
@@ -493,6 +506,56 @@
         });
 
         var normalTexture = app.createTexture2D(clothNormalData, DATA_TEXTURE_WIDTH, DATA_TEXTURE_HEIGHT, {
+            format: PicoGL.RGBA,
+            internalFormat: PicoGL.RGBA32F,
+            type: PicoGL.FLOAT,
+            minFilter: PicoGL.NEAREST,
+            magFilter: PicoGL.NEAREST,
+            wrapS: PicoGL.CLAMP_TO_EDGE,
+            wrapT: PicoGL.CLAMP_TO_EDGE
+        });
+
+        var positionTexture2A = app.createTexture2D(clothPositionData2, DATA_TEXTURE_WIDTH, DATA_TEXTURE_HEIGHT, {
+            format: PicoGL.RGBA,
+            internalFormat: PicoGL.RGBA32F,
+            type: PicoGL.FLOAT,
+            minFilter: PicoGL.NEAREST,
+            magFilter: PicoGL.NEAREST,
+            wrapS: PicoGL.CLAMP_TO_EDGE,
+            wrapT: PicoGL.CLAMP_TO_EDGE
+        });
+
+        var oldPositionTexture2A = app.createTexture2D(clothPositionData2, DATA_TEXTURE_WIDTH, DATA_TEXTURE_HEIGHT, {
+            format: PicoGL.RGBA,
+            internalFormat: PicoGL.RGBA32F,
+            type: PicoGL.FLOAT,
+            minFilter: PicoGL.NEAREST,
+            magFilter: PicoGL.NEAREST,
+            wrapS: PicoGL.CLAMP_TO_EDGE,
+            wrapT: PicoGL.CLAMP_TO_EDGE
+        });
+
+        var positionTexture2B = app.createTexture2D(DATA_TEXTURE_WIDTH, DATA_TEXTURE_HEIGHT, {
+            format: PicoGL.RGBA,
+            internalFormat: PicoGL.RGBA32F,
+            type: PicoGL.FLOAT,
+            minFilter: PicoGL.NEAREST,
+            magFilter: PicoGL.NEAREST,
+            wrapS: PicoGL.CLAMP_TO_EDGE,
+            wrapT: PicoGL.CLAMP_TO_EDGE
+        });
+
+        var oldPositionTexture2B = app.createTexture2D(DATA_TEXTURE_WIDTH, DATA_TEXTURE_HEIGHT, {
+            format: PicoGL.RGBA,
+            internalFormat: PicoGL.RGBA32F,
+            type: PicoGL.FLOAT,
+            minFilter: PicoGL.NEAREST,
+            magFilter: PicoGL.NEAREST,
+            wrapS: PicoGL.CLAMP_TO_EDGE,
+            wrapT: PicoGL.CLAMP_TO_EDGE
+        });
+
+        var normalTexture2 = app.createTexture2D(clothNormalData2, DATA_TEXTURE_WIDTH, DATA_TEXTURE_HEIGHT, {
             format: PicoGL.RGBA,
             internalFormat: PicoGL.RGBA32F,
             type: PicoGL.FLOAT,
@@ -626,12 +689,8 @@
         .update();
 
 
-        var pin2Offset = (DATA_TEXTURE_WIDTH - 1) * 4;
-        var originalPinPositions = new Float32Array(6);
-        originalPinPositions.set(clothPositionData.subarray(0, 3));
-        originalPinPositions.set(clothPositionData.subarray(pin2Offset, pin2Offset + 3), 3);
-        var pinPositions = new Float32Array(6);
-        pinPositions.set(originalPinPositions);
+        var pinOffset = clothPositionData[0];
+        var pin2Offset = clothPositionData2[0];
 
         // Draw uniforms
         var ballPosition = vec3.fromValues(0, 0.15, -0.8);
@@ -682,42 +741,36 @@
 
         // Update forces
         var updateForceDrawCall = app.createDrawCall(updateForceProgram, quadArray)
+        .uniform("uPinOffset", pinOffset)
+        .uniform("uRestDistance", STRUCTURAL_REST)
         .texture("uPositionBuffer", positionTextureA)
         .texture("uNormalBuffer", normalTexture);
 
         // Structural constraints
         var updateHorizontal1DrawCall = app.createDrawCall(updateConstraintProgram, quadArray)
         .uniformBlock("ConstraintUniforms", updateHorizontal1Uniforms)
-        .uniform("uPinPositions", pinPositions);
 
         var updateHorizontal2DrawCall  = app.createDrawCall(updateConstraintProgram, quadArray)
-        .uniformBlock("ConstraintUniforms", updateHorizontal2Uniforms)
-        .uniform("uPinPositions", pinPositions);
+        .uniformBlock("ConstraintUniforms", updateHorizontal2Uniforms);
 
         var updateVertical1DrawCall = app.createDrawCall(updateConstraintProgram, quadArray)
-        .uniformBlock("ConstraintUniforms", updateVertical1Uniforms)
-        .uniform("uPinPositions", pinPositions);
+        .uniformBlock("ConstraintUniforms", updateVertical1Uniforms);
 
         var updateVertical2DrawCall = app.createDrawCall(updateConstraintProgram, quadArray)
-        .uniformBlock("ConstraintUniforms", updateVertical2Uniforms)
-        .uniform("uPinPositions", pinPositions);
+        .uniformBlock("ConstraintUniforms", updateVertical2Uniforms);
 
         // Shear constraints
         var updateShear1DrawCall = app.createDrawCall(updateConstraintProgram, quadArray)
-        .uniformBlock("ConstraintUniforms", updateShear1Uniforms)
-        .uniform("uPinPositions", pinPositions);
+        .uniformBlock("ConstraintUniforms", updateShear1Uniforms);
 
         var updateShear2DrawCall = app.createDrawCall(updateConstraintProgram, quadArray)
-        .uniformBlock("ConstraintUniforms", updateShear2Uniforms)
-        .uniform("uPinPositions", pinPositions);
+        .uniformBlock("ConstraintUniforms", updateShear2Uniforms);
 
         var updateShear3DrawCall = app.createDrawCall(updateConstraintProgram, quadArray)
-        .uniformBlock("ConstraintUniforms", updateShear3Uniforms)
-        .uniform("uPinPositions", pinPositions);
+        .uniformBlock("ConstraintUniforms", updateShear3Uniforms);
 
         var updateShear4DrawCall = app.createDrawCall(updateConstraintProgram, quadArray)
-        .uniformBlock("ConstraintUniforms", updateShear4Uniforms)
-        .uniform("uPinPositions", pinPositions);
+        .uniformBlock("ConstraintUniforms", updateShear4Uniforms);
 
         var updateCollisionDrawCall = app.createDrawCall(updateCollisionProgram, quadArray)
         .uniformBlock("BallUniforms", ballUniforms);
@@ -727,7 +780,7 @@
 
         var targetX = null;
         canvas.addEventListener("mousemove", function(event) {
-            targetX = ((event.clientX / canvas.width) * 2 - 1);
+            targetX = Math.abs((event.clientX / canvas.width) * 2 - 1);
         });
         
         utils.loadImages(["img/khronos_webgl.png"], function(images) {
@@ -738,6 +791,11 @@
             .uniformBlock("SceneUniforms", sceneUniformBuffer)
             .texture("uDiffuse", texture)
             .texture("uNormalBuffer", normalTexture);
+
+            var clothDrawCall2 = app.createDrawCall(clothProgram, clothArray)
+            .uniformBlock("SceneUniforms", sceneUniformBuffer)
+            .texture("uDiffuse", texture)
+            .texture("uNormalBuffer", normalTexture2);
             
             var ballDrawCall = app.createDrawCall(ballProgram, ballArray)
             .uniformBlock("SceneUniforms", sceneUniformBuffer)
@@ -755,10 +813,23 @@
 
                 timer.start();
 
-                updateForceDrawCall.texture("uPositionBuffer", positionTextureA);
-                updateForceDrawCall.texture("uOldPositionBuffer", oldPositionTextureA);
-                updateForceFramebuffer.colorTarget(0, positionTextureB);
-                updateForceFramebuffer.colorTarget(1, oldPositionTextureB);
+                if (targetX !== null) {
+                    var xDiff = Math.abs(targetX) * 0.6 - 0.1 - pin2Offset;
+
+                    if (Math.abs(xDiff) > 0.001) {
+                        pinOffset -= xDiff * 0.005;
+                        pin2Offset += xDiff * 0.005;
+                    }
+                }
+
+                updateForceDrawCall
+                .uniform("uPinOffset", pinOffset)
+                .texture("uPositionBuffer", positionTextureA)
+                .texture("uOldPositionBuffer", oldPositionTextureA)
+                .texture("uNormalBuffer", normalTexture);
+                updateForceFramebuffer
+                .colorTarget(0, positionTextureB)
+                .colorTarget(1, oldPositionTextureB);
 
                 app.viewport(0, 0, DATA_TEXTURE_WIDTH, DATA_TEXTURE_HEIGHT);
 
@@ -771,61 +842,44 @@
                     updateFramebuffer.colorTarget(0, positionTextureA);
                     updateHorizontal1DrawCall
                     .texture("uPositionBuffer", positionTextureB)
-                    .uniform("uPinPositions", pinPositions)
                     .draw();
 
                     updateFramebuffer.colorTarget(0, positionTextureB);
                     updateHorizontal2DrawCall
                     .texture("uPositionBuffer", positionTextureA)
-                    .uniform("uPinPositions", pinPositions)
                     .draw();
 
                     updateFramebuffer.colorTarget(0, positionTextureA);
                     updateVertical1DrawCall
                     .texture("uPositionBuffer", positionTextureB)
-                    .uniform("uPinPositions", pinPositions)
                     .draw();
 
                     updateFramebuffer.colorTarget(0, positionTextureB);
                     updateVertical2DrawCall
                     .texture("uPositionBuffer", positionTextureA)
-                    .uniform("uPinPositions", pinPositions)
                     .draw();
 
                     updateFramebuffer.colorTarget(0, positionTextureA);
                     updateShear1DrawCall
                     .texture("uPositionBuffer", positionTextureB)
-                    .uniform("uPinPositions", pinPositions)
                     .draw();
 
                     updateFramebuffer.colorTarget(0, positionTextureB);
                     updateShear2DrawCall
                     .texture("uPositionBuffer", positionTextureA)
-                    .uniform("uPinPositions", pinPositions)
                     .draw();
 
                     updateFramebuffer.colorTarget(0, positionTextureA);
                     updateShear3DrawCall
                     .texture("uPositionBuffer", positionTextureB)
-                    .uniform("uPinPositions", pinPositions)
                     .draw();
 
                     updateFramebuffer.colorTarget(0, positionTextureB);
                     updateShear4DrawCall
                     .texture("uPositionBuffer", positionTextureA)
-                    .uniform("uPinPositions", pinPositions)
                     .draw();   
                 }
 
-                if (targetX !== null) {
-                    var offset = pinPositions[0] - originalPinPositions[0];
-                    var xDiff = targetX - offset;
-
-                    if (Math.abs(xDiff) > 0.001) {
-                        pinPositions[0] += xDiff * 0.2;
-                        pinPositions[3] += xDiff * 0.2;
-                    }
-                }
 
                 updateFramebuffer.colorTarget(0, positionTextureA);
                 updateCollisionDrawCall.texture("uPositionBuffer", positionTextureB).draw();
@@ -835,13 +889,83 @@
 
                 clothDrawCall.texture("uPositionBuffer", positionTextureA);
 
+                updateForceDrawCall
+                .uniform("uPinOffset", pin2Offset)
+                .texture("uPositionBuffer", positionTexture2A)
+                .texture("uOldPositionBuffer", oldPositionTexture2A)
+                .texture("uNormalBuffer", normalTexture2);
+                updateForceFramebuffer
+                .colorTarget(0, positionTexture2B)
+                .colorTarget(1, oldPositionTexture2B);
+
+                app.drawFramebuffer(updateForceFramebuffer);
+                updateForceDrawCall.draw();
+
+                for (var i = 0; i < CONSTRAINT_ITERATIONS; ++i) {
+                    app.drawFramebuffer(updateFramebuffer);
+
+                    updateFramebuffer.colorTarget(0, positionTexture2A);
+                    updateHorizontal1DrawCall
+                    .texture("uPositionBuffer", positionTexture2B)
+                    .draw();
+
+                    updateFramebuffer.colorTarget(0, positionTexture2B);
+                    updateHorizontal2DrawCall
+                    .texture("uPositionBuffer", positionTexture2A)
+                    .draw();
+
+                    updateFramebuffer.colorTarget(0, positionTexture2A);
+                    updateVertical1DrawCall
+                    .texture("uPositionBuffer", positionTexture2B)
+                    .draw();
+
+                    updateFramebuffer.colorTarget(0, positionTexture2B);
+                    updateVertical2DrawCall
+                    .texture("uPositionBuffer", positionTexture2A)
+                    .draw();
+
+                    updateFramebuffer.colorTarget(0, positionTexture2A);
+                    updateShear1DrawCall
+                    .texture("uPositionBuffer", positionTexture2B)
+                    .draw();
+
+                    updateFramebuffer.colorTarget(0, positionTexture2B);
+                    updateShear2DrawCall
+                    .texture("uPositionBuffer", positionTexture2A)
+                    .draw();
+
+                    updateFramebuffer.colorTarget(0, positionTexture2A);
+                    updateShear3DrawCall
+                    .texture("uPositionBuffer", positionTexture2B)
+                    .draw();
+
+                    updateFramebuffer.colorTarget(0, positionTexture2B);
+                    updateShear4DrawCall
+                    .texture("uPositionBuffer", positionTexture2A)
+                    .draw();   
+                }
+
+
+                updateFramebuffer.colorTarget(0, positionTexture2A);
+                updateCollisionDrawCall.texture("uPositionBuffer", positionTexture2B).draw();
+
+                updateFramebuffer.colorTarget(0, normalTexture2);
+                updateNormalDrawCall.texture("uPositionBuffer", positionTexture2A).draw();
+
+                clothDrawCall2.texture("uPositionBuffer", positionTexture2A);
+
                 app.defaultViewport().defaultDrawFramebuffer().clear();
                 clothDrawCall.draw();
+                clothDrawCall2.draw();
                 ballDrawCall.draw();
 
                 var temp = oldPositionTextureA;
                 oldPositionTextureA = oldPositionTextureB;
                 oldPositionTextureB = temp;
+
+                var temp = oldPositionTexture2A;
+                oldPositionTexture2A = oldPositionTexture2B;
+                oldPositionTexture2B = temp;
 
                 timer.end();
 
