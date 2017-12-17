@@ -59,6 +59,8 @@
     <script id="transparent-fs" type="x-shader/vs">
         #version 300 es   
 
+        precision highp float;
+
         out vec4 fragColor;
         void main() {
             fragColor = vec4(0.0, 0.0, 0.0, 0.0);
@@ -156,36 +158,6 @@
             outPosition = position;
         }
     </script>
-    <script id="update-collision-fs" type="x-fragment-shader">
-        #version 300 es
-        
-        precision highp float;
-
-        in vec2 vScreenUV;
-
-        layout(std140) uniform BallUniforms {
-            vec4 position;
-            float radius;
-        } ball;
-
-        uniform sampler2D uPositionBuffer;
-
-        out vec3 outPosition;
-
-        void main() {
-            vec2 dimensions = vec2(textureSize(uPositionBuffer, 0));
-            ivec2 texelCoord = ivec2(vScreenUV * dimensions);
-            vec3 position = texelFetch(uPositionBuffer, texelCoord, 0).xyz;
-
-            vec3 diff = position - ball.position.xyz;
-            float dist = length(diff);
-            if (dist < ball.radius + 0.01) {
-                position += (ball.radius + 0.01 - dist) * normalize(diff);
-            }
-
-            outPosition = position;
-        }
-    </script>
 
     <script id="update-normal-fs" type="x-fragment-shader">
         #version 300 es
@@ -237,37 +209,6 @@
         }
     </script>
     
-    <script id="ball-vs" type="x-vertex-shader">
-        #version 300 es
-
-        layout(location=0) in vec3 aPosition;
-        layout(location=1) in vec3 aNormal;
-
-        layout(std140) uniform; 
-
-        uniform BallUniforms {
-            vec4 position;
-            float radius;
-        } ball;
-
-        uniform SceneUniforms {
-            mat4 viewProj;
-            vec4 lightPosition;
-        };
-
-        out vec3 vPosition;
-        out vec2 vUV;
-        out vec3 vNormal;
-
-        void main() {
-            vPosition = aPosition + ball.position.xyz;
-            vUV = vec2(0.0, 0.0);
-            vNormal = aNormal;
-
-            gl_Position = viewProj * vec4(vPosition, 1.0);
-        }
-
-    </script>
     <script id="cloth-vs" type="x-vertex-shader">
         #version 300 es   
        
@@ -348,16 +289,13 @@
         var timer = app.createTimer();
 
         var CONSTRAINT_ITERATIONS = 20;
-        var DATA_TEXTURE_WIDTH = 30;
         var DATA_TEXTURE_HEIGHT = 60;
-        var CLOTH_WIDTH = 0.5;
+        var DATA_TEXTURE_WIDTH = 40;
         var CLOTH_HEIGHT = 1;
+        var CLOTH_WIDTH = CLOTH_HEIGHT * (DATA_TEXTURE_WIDTH / DATA_TEXTURE_HEIGHT);
         var NUM_PARTICLES = DATA_TEXTURE_WIDTH * DATA_TEXTURE_HEIGHT;
         var STRUCTURAL_REST = 1 / DATA_TEXTURE_HEIGHT;
         var SHEAR_REST = Math.sqrt(2 * STRUCTURAL_REST * STRUCTURAL_REST);
-        var BALL_RADIUS = 0.15;
-        var BALL_SPEED = 0.004;    
-        var BALL_RANGE = 0.9;
 
         ///////////////////
         // PROGRAMS
@@ -375,10 +313,6 @@
         var updateConstraintFsSource = document.getElementById("update-constraint-fs").text.trim();
         var updateConstraintProgram = app.createProgram(quadShader, updateConstraintFsSource);
 
-        // Check for collision with ball
-        var updateCollisionFsSource = document.getElementById("update-collision-fs").text.trim();
-        var updateCollisionProgram = app.createProgram(quadShader, updateCollisionFsSource);
-        
         // Calculate normals
         var updateNormalFsSource = document.getElementById("update-normal-fs").text.trim();
         var updateNormalProgram = app.createProgram(quadShader, updateNormalFsSource);
@@ -388,8 +322,8 @@
         var phongShader = app.createShader(PicoGL.FRAGMENT_SHADER, phongSource);
 
         // Draw ball
-        var ballVsSource = document.getElementById("ball-vs").text.trim();
-        var ballProgram = app.createProgram(ballVsSource, phongShader);
+        var transparentFsSource = document.getElementById("transparent-fs").text.trim();
+        var transparentProgram = app.createProgram(quadShader, transparentFsSource);
 
         // Draw cloth
         var clothVsSource = document.getElementById("cloth-vs").text.trim();
@@ -436,9 +370,9 @@
             var u = (x / DATA_TEXTURE_WIDTH) * CLOTH_WIDTH;
             var v = CLOTH_HEIGHT - (y / DATA_TEXTURE_HEIGHT) * CLOTH_HEIGHT;
 
-            clothPositionData[vec4i] = u - 0.4;
+            clothPositionData[vec4i] = u - CLOTH_WIDTH;
             clothPositionData[vec4i + 1] = v - 0.3;
-            clothPositionData2[vec4i] = u - 0.1;
+            clothPositionData2[vec4i] = u;
             clothPositionData2[vec4i + 1] = v - 0.3;
 
             clothNormalData[vec4i + 2] = 1;
@@ -582,6 +516,18 @@
         var quadArray = app.createVertexArray()
         .vertexAttributeBuffer(0, quadPositions);
 
+        var transparentQuadPositions = app.createVertexBuffer(PicoGL.FLOAT, 2, new Float32Array([
+            -0.3, 0.3,
+            -0.3, -0.3,
+            0.3, -0.3,
+            -0.3, 0.3,
+            0.3, -0.3,
+            0.3, 0.3,
+        ]));
+
+        var transparentQuadArray = app.createVertexArray()
+        .vertexAttributeBuffer(0, transparentQuadPositions);
+
         // Cloth geometry for drawing
         var dataIndex = app.createVertexBuffer(PicoGL.SHORT, 2, dataTextureIndex);
         var uv = app.createVertexBuffer(PicoGL.FLOAT, 2, uvData);
@@ -591,17 +537,6 @@
         .vertexIntegerAttributeBuffer(0, dataIndex)
         .vertexAttributeBuffer(1, uv)
         .indexBuffer(indices);
-
-        // Ball geometry
-        var ballGeo = utils.createSphere({radius: BALL_RADIUS});
-        var ballPositions = app.createVertexBuffer(PicoGL.FLOAT, 3, ballGeo.positions);
-        var ballNormals = app.createVertexBuffer(PicoGL.FLOAT, 3, ballGeo.normals);
-        var ballIndices = app.createIndexBuffer(PicoGL.UNSIGNED_SHORT, 3, ballGeo.indices);
-
-        var ballArray = app.createVertexArray()
-        .vertexAttributeBuffer(0, ballPositions)
-        .vertexAttributeBuffer(1, ballNormals)
-        .indexBuffer(ballIndices);
 
         ////////////////
         // UNIFORMS
@@ -692,19 +627,6 @@
         var pinOffset = clothPositionData[0];
         var pin2Offset = clothPositionData2[0];
 
-        // Draw uniforms
-        var ballPosition = vec3.fromValues(0, 0.15, -0.8);
-        var ballUniforms = app.createUniformBuffer([
-            PicoGL.FLOAT_VEC4,
-            PicoGL.FLOAT
-        ])
-        .set(0, ballPosition)
-        .set(1, BALL_RADIUS)
-        .update();
-        
-        var ballColor = new Uint8Array([255, 20, 20]);
-        var ballTexture = app.createTexture2D(ballColor, 1, 1, { format: PicoGL.RGB });
-
         var projMatrix = mat4.create();
         mat4.perspective(projMatrix, Math.PI / 2, canvas.width / canvas.height, 0.1, 3.0);
 
@@ -772,10 +694,9 @@
         var updateShear4DrawCall = app.createDrawCall(updateConstraintProgram, quadArray)
         .uniformBlock("ConstraintUniforms", updateShear4Uniforms);
 
-        var updateCollisionDrawCall = app.createDrawCall(updateCollisionProgram, quadArray)
-        .uniformBlock("BallUniforms", ballUniforms);
-
         var updateNormalDrawCall = app.createDrawCall(updateNormalProgram, quadArray);
+        
+        var transparentDrawCall = app.createDrawCall(transparentProgram, transparentQuadArray);
 
 
         var targetX = null;
@@ -797,10 +718,6 @@
             .texture("uDiffuse", texture)
             .texture("uNormalBuffer", normalTexture2);
             
-            var ballDrawCall = app.createDrawCall(ballProgram, ballArray)
-            .uniformBlock("SceneUniforms", sceneUniformBuffer)
-            .uniformBlock("BallUniforms", ballUniforms)
-            .texture("uDiffuse", ballTexture);
 
             /////////
             // DRAW
@@ -882,7 +799,6 @@
 
 
                 updateFramebuffer.colorTarget(0, positionTextureA);
-                updateCollisionDrawCall.texture("uPositionBuffer", positionTextureB).draw();
 
                 updateFramebuffer.colorTarget(0, normalTexture);
                 updateNormalDrawCall.texture("uPositionBuffer", positionTextureA).draw();
@@ -947,7 +863,6 @@
 
 
                 updateFramebuffer.colorTarget(0, positionTexture2A);
-                updateCollisionDrawCall.texture("uPositionBuffer", positionTexture2B).draw();
 
                 updateFramebuffer.colorTarget(0, normalTexture2);
                 updateNormalDrawCall.texture("uPositionBuffer", positionTexture2A).draw();
@@ -955,9 +870,11 @@
                 clothDrawCall2.texture("uPositionBuffer", positionTexture2A);
 
                 app.defaultViewport().defaultDrawFramebuffer().clear();
+                app.depthMask(false);
+                transparentDrawCall.draw();
+                app.depthMask(true);
                 clothDrawCall.draw();
                 clothDrawCall2.draw();
-                ballDrawCall.draw();
 
                 var temp = oldPositionTextureA;
                 oldPositionTextureA = oldPositionTextureB;
