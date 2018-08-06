@@ -32,7 +32,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 		exports["PicoGL"] = factory();
 	else
 		root["PicoGL"] = factory();
-})(this, function() {
+})(typeof self !== 'undefined' ? self : this, function() {
 return /******/ (function(modules) { // webpackBootstrap
 /******/ 	// The module cache
 /******/ 	var installedModules = {};
@@ -128,7 +128,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 
-let canvas = document.createElement("canvas");
+let canvas = null;
+if (typeof document !== "undefined") {
+    canvas = document.createElement("canvas");
+} else if (typeof OffscreenCanvas !== "undefined") {
+    canvas = new OffscreenCanvas(1, 1);
+} else {
+    throw new Error("PicoGL is running in a Web Worker, but OffscreenCanvas is unavailable");
+}
 let gl = canvas.getContext("webgl2");
 
 // https://www.khronos.org/registry/webgl/specs/1.0/
